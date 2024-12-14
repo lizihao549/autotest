@@ -1,0 +1,82 @@
+import serial
+import logging
+from datetime import datetime
+
+
+current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+log_file_name = f'command_log_{current_time}.txt'
+logging.basicConfig(filename=log_file_name, level=logging.INFO, format='%(asctime)s - %(message)s')
+
+
+SERIAL_PORT = 'COM3'  
+BAUD_RATE = 9600  
+TIMEOUT = 1  
+
+command_list = [
+    'screen-length 0 temporary',
+    'display diagnostic-information',
+    'display device',
+    'display version',
+    'display current-configuration',
+    'display temp',
+    'display device card',
+    'ssystem-view',
+    'diag'
+   
+]
+
+PASSWORD = "Huawei12#$"  
+
+END_MARKERS = {'HTP>', '<huawei>', '[~HUAWEI]', '[Huawei-diagnose]'}
+
+
+def send_command(ser, command):
+    ser.write((command + '\n').encode('utf-8'))  
+    logging.info(f'Sent: {command}') 
+    print(f'Sent: {command}')  
+
+
+def is_end_marker(response):
+    return any(marker in response for marker in END_MARKERS)
+
+def read_response(ser):
+    response = ''
+    while True:
+        if ser.in_waiting > 0:
+            data = ser.read(ser.in_waiting).decode('utf-8')
+            response += data
+            logging.info(data) 
+            print(data, end='')  
+            print("串口打印:", data)
+            if is_end_marker(response):
+                break
+    return response
+
+
+def main():
+    try:
+        with serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=TIMEOUT) as ser:
+            send_command(ser, "") 
+            send_command(ser, PASSWORD)
+            response = read_response(ser)
+            if '<huawei>' in response:
+                print("已成功登录，开始发送指令。")
+                for command in command_list:
+                    send_command(ser, command) 
+                    read_response(ser)  
+            else:
+                print("可能密码错误。")
+
+    except serial.SerialException as e:
+        logging.error(f'Serial error: {e}')
+        print(f'Serial error: {e}')
+    except KeyboardInterrupt:
+        logging.info('Program interrupted by user.')
+        print('Program interrupted by user.')
+    except Exception as e:
+        logging.error(f'An error occurred: {e}')
+        print(f'An error occurred: {e}')
+
+
+if __name__ == '__main__':
+    main()
