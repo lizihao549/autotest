@@ -1,0 +1,104 @@
+import paramiko
+import time
+import re
+
+# 配置参数
+BMC_IP = 'BMC后台IP'
+BMC_USER = 'BMC用户名'
+BMC_PASSWORD = 'BMC密码'
+L1_IP = 'L1前台IP'
+L1_USER = 'L1用户名'
+L1_PASSWORD = 'Huawei12#$'
+check_command_list = ['指令1', '指令2', '指令3']  # 替换为实际的指令
+AC_cycle = 3  # 设置AC上下电次数
+
+
+# 日志记录
+def log_to_file(filename, data):
+    with open(filename, 'a') as f:
+        f.write(data + '\n')
+
+
+def ssh_execute(ip, user, password, command, expect_keywords=None):
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(ip, username=user, password=password)
+
+    stdin, stdout, stderr = client.exec_command(command)
+    time.sleep(1)  # 等待命令执行
+    output = stdout.read().decode()
+    error = stderr.read().decode() 
+    # 可以选择性显示错误信息
+    if error:
+        print(f"错误信息: {error}")
+
+        # 检查返回值
+    if expect_keywords and any(keyword in output for keyword in expect_keywords):
+        return output
+    else:
+        return None
+
+    # 主执行逻辑
+
+
+for i in range(1, AC_cycle + 1):
+    # 查询AC状态
+    ac_status_command = '查询AC状态的指令'  # 替换为实际指令
+    ac_status_output = ssh_execute(BMC_IP, BMC_USER, BMC_PASSWORD, ac_status_command, ['[0]'])
+
+    if ac_status_output:
+        print(f"AC状态查询成功: {ac_status_output}")
+        log_to_file(f'ACBMC_{i}.log', ac_status_output)
+
+        # 下AC指令
+        ac_command = '下AC指令'  # 替换为实际指令
+        ac_command_output = ssh_execute(BMC_IP, BMC_USER, BMC_PASSWORD, ac_command, [])
+        log_to_file(f'ACBMC_{i}.log', ac_command_output)
+
+        # 等待 7 分钟
+        print("等待 7 分钟...")
+        time.sleep(420)  # 等待 420 秒（7分钟）
+
+        # 连接L1前台
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(L1_IP, username=L1_USER, password=L1_PASSWORD)
+
+        # 发送回车
+        print("发送回车...")
+        client.exec_command('\n')
+        time.sleep(1)  # 确保可以发送
+
+        # 发送密码（如果需要）
+        print("输入密码...")
+        stdin, stdout, stderr = client.exec_command(L1_PASSWORD)
+        time.sleep(1)  # 等待密码处理完成
+
+        output = ''
+
+        # 执行check_command_list中的指令
+        for command in check_command_list:
+            print(f"执行命令: {command}")
+            stdin, stdout, stderr = client.exec_command(command)
+            while True:
+                line = stdout.readline()
+                if not line:
+                    break  # 结束循环条件
+                output += line
+                print(line, end='')  # 打印到控制台
+
+                # 检测关键字
+                if re.search(r'<HUAWEI>|[~HUAWEI]|[Huawei-diagnose]', line):
+                    break
+
+                    # 保存L1的输出
+        log_to_file(f'L1AC_{i}.log', output)
+
+        # 等待5分钟
+        print("等待 5 分钟...")
+        time.sleep(300)
+    else:
+        print(f"AC状态查询失败: {ac_status_output}")
+
+    # 关闭连接
+client.close()
