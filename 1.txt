@@ -1,0 +1,98 @@
+import paramiko
+import time
+import logging
+import os
+
+# 设置日志
+def setup_logging(ac_cycle):
+    logging.basicConfig(level=logging.INFO, 
+                        format='%(asctime)s - %(levelname)s - %(message)s',
+                        handlers=[
+                            logging.FileHandler(f"BMC_AC_{ac_cycle}.log"),
+                            logging.StreamHandler()
+                        ])
+
+# SSH 连接
+def ssh_connect(hostname, username, password):
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(hostname, username=username, password=password)
+    return client
+
+# 检查 BMC AC 状态
+def check_bmc_ac_status(bmc_client):
+    stdin, stdout, stderr = bmc_client.exec_command('your_check_command')  # 这里替换为检查 AC 状态的指令
+    output = stdout.read().decode().strip()
+    logging.info(f"BMC AC Status: {output}")
+    return output
+
+# 下 AC 上下电指令
+def toggle_ac(bmc_client):
+    # 替换为上下电的指令
+    bmc_client.exec_command('your_power_on_command')  # 上电指令
+    time.sleep(30)  # 等待 30 秒
+    bmc_client.exec_command('your_power_off_command')  # 下电指令
+
+# 执行 L1 的指令并保存日志
+def execute_l1_commands(l1_client, checklist, ac_cycle):
+    with open(f"L1_AC_{ac_cycle}.log", "w") as l1_log_file:
+        for command in checklist:
+            stdin, stdout, stderr = l1_client.exec_command(command)
+            output = stdout.read().decode()
+            l1_log_file.write(output)  # 写入 L1 的输出到日志文件
+            logging.info(f"L1 Command Output: {output}")
+
+            # 检查输出中是否包含特定关键字
+            if any(keyword in output for keyword in ["<HUAWEI>", "[～HUAWEI]", "[～HUAWEIDiag]"]):
+                continue  # 如果有关键字，继续执行下一个指令
+            else:
+                break  # 如果没有关键字，退出循环
+
+# 主函数
+def main(bmc_host, bmc_user, bmc_pass, l1_host, l1_user, l1_pass, checklist, ac_cycles):
+    for i in range(1, ac_cycles + 1):
+        setup_logging(i)
+
+        # 连接 BMC
+        bmc_client = ssh_connect(bmc_host, bmc_user, bmc_pass)
+
+        # 检查 AC 状态
+        status = check_bmc_ac_status(bmc_client)
+        if status == "[0]":
+            toggle_ac(bmc_client)
+            time.sleep(420)  # 等待 7 分钟
+
+            # 连接 L1
+            l1_client = ssh_connect(l1_host, l1_user, l1_pass)
+
+            # 执行 L1 指令并保存日志
+            execute_l1_commands(l1_client, checklist, i)
+
+            # 关闭 L1 连接
+            l1_client.close()
+
+        # 关闭 BMC 连接
+        bmc_client.close()
+
+        # 检查状态
+        time.sleep(60)  # 等待 1 分钟
+
+if __name__ == "__main__":
+    # 需要根据实际情况替换以下参数
+    bmc_host = "BMC_IP"
+    bmc_user = "BMC_USERNAME"
+    bmc_pass = "BMC_PASSWORD"
+    l1_host = "L1_IP"
+    l1_user = "L1_USERNAME"
+    l1_pass = "L1_PASSWORD"
+    
+    checklist = [
+        "command1",  # 替换为实际指令
+        "command2",
+        "command3",
+        # 继续添加指令
+    ]
+    
+    ac_cycles = 5  # 设置 AC 循环次数
+
+    main(bmc_host, bmc_user, bmc_pass, l1_host, l1_user, l1_pass, checklist, ac_cycles)
